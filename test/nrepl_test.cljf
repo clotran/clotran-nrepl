@@ -1,0 +1,65 @@
+;; test/nrepl_test.cljf -- the server, driven over a socket by a client
+;; written with this package's own bencode. Run by test/run.sh.
+(require '[clotran.nrepl.server :as srv] '[clotran.nrepl.bencode :as b] '[clotran.net :as net])
+
+(def failures (atom 0))
+(defn check [label got want]
+  (if (= got want)
+    (println "ok   -" label)
+    (do (swap! failures inc) (println "FAIL -" label "\n  got: " (pr-str got) "\n  want:" (pr-str want)))))
+
+(def s (srv/start! {:port 0}))
+(def c (net/connect "127.0.0.1" (:port s)))
+(def src (b/byte-source c))
+(defn ask [m]
+  (b/write-value c m)
+  (loop [acc []]
+    (let [r (dissoc (b/read-value src) "session")]
+      (if (some #{"done"} (get r "status")) (conj acc r) (recur (conj acc r))))))
+
+(check "bencode round trip, bytes counted"
+       [(b/encode-str {"op" "eval" "l" ["λ" 1]}) (b/encode-str {"b" 1 "a" 2})]
+       ["d1:ll2:λi1ee2:op4:evale" "d1:ai2e1:bi1ee"])
+(def sid (get (first (ask {"op" "clone" "id" "1"})) "new-session"))
+(check "clone answers a session" (string? sid) true)
+(check "describe lists the ops"
+       (sort (keys (get (first (ask {"op" "describe" "id" "2"})) "ops")))
+       ["clone" "close" "complete" "completions" "describe" "eldoc" "eval" "info" "load-file" "lookup" "ns-list"])
+(check "eval: output as printed, a value a form, the namespace, done"
+       (ask {"op" "eval" "code" "(println \"hi λ\") (+ 1 2) (ns nt-other) (str *ns*)" "id" "3" "session" sid})
+       [{"id" "3" "out" "hi λ\n"} {"id" "3" "ns" "user" "value" "nil"} {"id" "3" "ns" "user" "value" "3"}
+        {"id" "3" "ns" "nt-other" "value" "nil"} {"id" "3" "ns" "nt-other" "value" "\"nt-other\""}
+        {"id" "3" "status" ["done"]}])
+(check "the session keeps its namespace and *1"
+       (map #(get % "value") (ask {"op" "eval" "code" "(str *ns*) *1" "id" "4" "session" sid}))
+       ["\"nt-other\"" "\"nt-other\"" nil])
+(check "an error: err, ex and root-ex, eval-error, and the rest not run"
+       (ask {"op" "eval" "code" "(/ 1 0) (println :never)" "id" "5" "session" sid})
+       [{"id" "5" "err" "ArithmeticException: Divide by zero\n"}
+        {"id" "5" "ex" "ArithmeticException" "root-ex" "ArithmeticException" "status" ["eval-error"]}
+        {"id" "5" "status" ["done"]}])
+(check "load-file answers the last value"
+       (ask {"op" "load-file" "file" "(def y 10) (* y 2)" "id" "6" "ns" "user"})
+       [{"id" "6" "ns" "user" "value" "20"} {"id" "6" "status" ["done"]}])
+(ask {"op" "eval" "code" "(require '[clojure.string :as str])" "ns" "user" "id" "7"})
+(check "completions: core, an alias, a namespace"
+       (mapv (fn [p] (mapv #(get % "candidate") (get (first (ask {"op" "completions" "prefix" p "ns" "user" "id" "8"})) "completions")))
+             ["reduc" "str/jo" "clojure.string/jo"])
+       [["reduce" "reduce-kv" "reduced" "reduced?" "reductions"] ["str/join"] ["clojure.string/join"]])
+(check "info and lookup"
+       [(select-keys (first (ask {"op" "info" "sym" "inc" "ns" "user" "id" "9"})) ["ns" "name" "arglists-str"])
+        (get-in (first (ask {"op" "lookup" "sym" "inc" "ns" "user" "id" "10"})) ["info" "name"])]
+       [{"ns" "clojure.core" "name" "inc" "arglists-str" "[x]"} "inc"])
+(check "no info is said so" (get (first (ask {"op" "info" "sym" "nope-nothing" "ns" "user" "id" "11"})) "status") ["done" "no-info"])
+(check "eldoc" (select-keys (first (ask {"op" "eldoc" "sym" "inc" "ns" "user" "id" "12"})) ["eldoc" "type"])
+       {"eldoc" [["x"]] "type" "function"})
+(check "ns-list names the loaded namespaces"
+       (every? (set (get (first (ask {"op" "ns-list" "id" "13"})) "ns-list")) ["clojure.core" "user" "clotran.nrepl.server"]) true)
+(check "an unknown op" (first (ask {"op" "bogus" "id" "14"})) {"id" "14" "status" ["error" "unknown-op" "done"]})
+(check "close" (get (first (ask {"op" "close" "id" "15" "session" sid})) "status") ["done" "session-closed"])
+
+(net/close c)
+(srv/stop! s)
+(if (zero? @failures)
+  (println "CLOTRAN-NREPL TESTS PASSED")
+  (do (println "CLOTRAN-NREPL TESTS FAILED:" @failures) (clotran-exit 1)))

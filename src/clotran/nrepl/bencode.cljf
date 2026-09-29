@@ -1,19 +1,122 @@
 (ns clotran.nrepl.bencode
-  "bencode, nREPL's wire format: integers i42e, byte strings 5:hello,
-  lists l...e, dictionaries d...e with byte-string keys in sorted order.
-  A string's length counts BYTES (UTF-8), which is why this reads and
-  writes byte arrays, not text.
+  "bencode, nREPL's wire format (BEP 3): integers i42e, byte strings
+  5:hello, lists l...e, dictionaries d...e whose keys are byte strings in
+  sorted order. A string's length counts BYTES, not characters.
 
-  Stub: not written yet. The spec is BEP 3; nrepl/bencode is the JVM
-  implementation, used as a reference only.")
+  Reading is over a buffered byte source on a clotran.net connection;
+  strings come back decoded from UTF-8, as nREPL's text is. Writing
+  builds the whole message as text, each string prefixed with its UTF-8
+  byte count, and sends it in one write."
+  (:require [clotran.io :as io]
+            [clotran.net :as net]))
 
-(defn write-bencode
-  "Writes x -- an integer, a string, a keyword or symbol (as its name),
-  a sequential or a map -- to out."
-  [out x]
-  (throw (ex-info "clotran.nrepl.bencode/write-bencode: not yet written" {:x x})))
+;;; ---- a buffered byte source over a connection --------------------------
 
-(defn read-bencode
-  "The next value from in, or nil at the end of the stream."
-  [in]
-  (throw (ex-info "clotran.nrepl.bencode/read-bencode: not yet written" {})))
+(defn byte-source
+  "Bytes from conn, read a buffer at a time."
+  [conn]
+  {:conn conn :buf (byte-array 65536) :pos (atom 0) :lim (atom 0)})
+
+(defn- next-byte
+  "The next byte (-128..127), or nil at the end of the stream."
+  [{:keys [conn buf pos lim]}]
+  (when (>= @pos @lim)
+    (let [n (net/read-bytes conn buf 0 (alength buf) -1)]
+      (reset! pos 0)
+      (reset! lim (max n 0))))
+  (when (< @pos @lim)
+    (let [b (aget buf @pos)] (swap! pos inc) b)))
+
+(defn- read-n
+  "Exactly n bytes, as a byte array; an error if the stream ends first."
+  [src n]
+  (let [out (byte-array n)]
+    (loop [i 0]
+      (when (< i n)
+        (let [b (next-byte src)]
+          (when (nil? b) (throw (ex-info "bencode: the stream ended inside a string" {})))
+          (aset out i (byte b))
+          (recur (inc i)))))
+    out))
+
+(def ^:private ch-i (int \i)) (def ^:private ch-l (int \l))
+(def ^:private ch-d (int \d)) (def ^:private ch-e (int \e))
+(def ^:private ch-colon (int \:)) (def ^:private ch-minus (int \-))
+
+(defn- digits-until
+  "The integer written in ASCII from first-byte up to the stop byte, which
+  is consumed."
+  [src first-byte stop]
+  (loop [b first-byte neg false acc 0 any false]
+    (cond (nil? b) (throw (ex-info "bencode: the stream ended inside a number" {}))
+          (= b stop) (if any (if neg (- acc) acc) (throw (ex-info "bencode: an empty number" {})))
+          (and (= b ch-minus) (not any) (not neg)) (recur (next-byte src) true acc any)
+          (<= 48 b 57) (recur (next-byte src) neg (+ (* 10 acc) (- b 48)) true)
+          :else (throw (ex-info (str "bencode: unexpected byte " b " in a number") {:byte b})))))
+
+(declare read-value)
+
+(defn- read-after
+  "The value whose first byte, b, is already read."
+  [src b]
+  (cond
+    (= b ch-i) (digits-until src (next-byte src) ch-e)
+    (= b ch-l) (loop [acc []]
+                 (let [c (next-byte src)]
+                   (cond (nil? c) (throw (ex-info "bencode: the stream ended inside a list" {}))
+                         (= c ch-e) acc
+                         :else (recur (conj acc (read-after src c))))))
+    (= b ch-d) (loop [acc {}]
+                 (let [c (next-byte src)]
+                   (cond (nil? c) (throw (ex-info "bencode: the stream ended inside a dictionary" {}))
+                         (= c ch-e) acc
+                         :else (let [k (read-after src c)
+                                     v (read-value src)]
+                                 (recur (assoc acc k v))))))
+    (<= 48 b 57) (let [n (digits-until src b ch-colon)]
+                   (io/utf8-string (read-n src n)))
+    :else (throw (ex-info (str "bencode: unexpected byte " b) {:byte b}))))
+
+(defn read-value
+  "The next value from src (a byte-source): a string, an integer, a
+  vector or a map with string keys; nil at the end of the stream."
+  [src]
+  (when-let [b (next-byte src)]
+    (read-after src b)))
+
+;;; ---- writing -----------------------------------------------------------
+
+(defn- utf8-count [s] (alength (io/utf8-bytes s)))
+
+(defn- text-of [x]
+  (cond (string? x) x
+        (keyword? x) (subs (str x) 1)
+        :else (str x)))
+
+(defn- encode [^StringBuilder sb x]
+  (cond
+    (integer? x) (doto sb (.append "i") (.append (str x)) (.append "e"))
+    (or (string? x) (keyword? x) (symbol? x))
+    (let [s (text-of x)]
+      (doto sb (.append (str (utf8-count s))) (.append ":") (.append s)))
+    ;; keys sorted by their bytes, which for the ASCII keys nREPL uses is
+    ;; their order as strings
+    (map? x) (do (.append sb "d")
+                 (doseq [[k v] (sort-by first (map (fn [[k v]] [(text-of k) v]) x))]
+                   (encode sb k) (encode sb v))
+                 (.append sb "e"))
+    (sequential? x) (do (.append sb "l") (doseq [v x] (encode sb v)) (.append sb "e"))
+    (set? x) (encode sb (vec x))
+    (nil? x) (encode sb [])
+    (boolean? x) (encode sb (if x 1 0))
+    :else (encode sb (str x))))
+
+(defn encode-str
+  "x as bencode text (to be sent as UTF-8)."
+  [x]
+  (let [sb (StringBuilder.)] (encode sb x) (str sb)))
+
+(defn write-value
+  "Sends x, bencoded, on conn, in one write."
+  [conn x]
+  (net/write-bytes conn (io/utf8-bytes (encode-str x))))

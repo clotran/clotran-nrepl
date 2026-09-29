@@ -1,17 +1,226 @@
 (ns clotran.nrepl.server
-  "An nREPL server on clotran.net: sessions, and the ops CIDER uses --
-  clone close describe eval load-file complete completions info lookup
-  eldoc ns-list. See README.md for the plan.
+  "An nREPL server on clotran.net, for CIDER and other nREPL clients:
+  sessions, and the ops CIDER uses day to day -- clone close describe
+  eval load-file complete completions info lookup eldoc ns-list. Shaped
+  like babashka's compact server (babashka.nrepl), not the reference
+  nrepl/nrepl, which is built on JVM threads and class loaders.
 
-  Stub: start! refuses, naming what is missing."
-  (:require [clotran.nrepl.bencode]))
+  Every reply carries the request's id and session. eval answers a
+  value per form, what it printed as out and err as it is printed, and
+  status done; an error ends the evaluation with ex, root-ex and status
+  eval-error, as nREPL's does. interrupt is not answered: a running
+  evaluation cannot be stopped from outside on clotran."
+  (:require [clotran.nrepl.bencode :as b]
+            [clotran.net :as net]
+            [clotran.io :as io]
+            [clojure.string :as str]))
 
 (def ops
-  "The ops this server will answer."
+  "The ops this server answers."
   #{"clone" "close" "describe" "eval" "load-file" "complete" "completions"
     "info" "lookup" "eldoc" "ns-list"})
 
+(def nrepl-version {"major" 1 "minor" 3 "incremental" 0 "version-string" "1.3.0"})
+
+;; session id -> {:ns symbol, :*1 :*2 :*3 :*e}
+(defonce ^:private sessions (atom {}))
+
+(defn- new-session [from]
+  (let [id (str (random-uuid))]
+    (swap! sessions assoc id (merge {:ns 'user} (select-keys (get @sessions from) [:ns])))
+    id))
+
+;;; ---- output as messages -------------------------------------------------
+
+;; A writer sending what is printed as {key text} messages: a line at a
+;; time, and whatever is left at a flush.
+(deftype MsgWriter [send k pending]
+  Object
+  (write [this x]
+    (let [s (if (integer? x) (str (char x)) (str x))]
+      (swap! pending str s)
+      (when (str/includes? s "\n") (.flush this))
+      nil))
+  (append [this x] (.write this x) this)
+  (flush [_]
+    (let [s @pending]
+      (reset! pending "")
+      (when (pos? (count s)) (send {k s}))
+      nil))
+  (close [this] (.flush this)))
+
+(defn- class-name [x]
+  (let [s (pr-str (class x))] (subs s (inc (or (str/last-index-of s ".") -1)))))
+
+(defn- root-cause [e] (if-let [c (ex-cause e)] (recur c) e))
+
+;;; ---- evaluation ------------------------------------------------------------
+
+(defn- eval-code
+  "Evaluates every form in code in the session, sending a value per form
+  (or, with last-only, the last), out and err as printed. Answers the
+  session state to keep. An error stops it, after sending err and ex."
+  [send session code last-only]
+  (let [out (MsgWriter. send "out" (atom ""))
+        err (MsgWriter. send "err" (atom ""))
+        rdr (io/line-numbering-reader (io/text-reader code))
+        eof (Object.)
+        st (atom session)]
+    (binding [*ns* (create-ns (:ns session))
+              *1 (:*1 session) *2 (:*2 session) *3 (:*3 session) *e (:*e session)
+              *out* out *err* err]
+      (try
+        (loop [last-v nil any false]
+          (let [form (read {:eof eof :read-cond :allow} rdr)]
+            (if (identical? form eof)
+              (when (and last-only any)
+                (send {"value" (pr-str last-v) "ns" (str (ns-name *ns*))}))
+              (let [v (eval form)]
+                (set! *3 *2) (set! *2 *1) (set! *1 v)
+                (when-not last-only
+                  (.flush out) (.flush err)
+                  (send {"value" (pr-str v) "ns" (str (ns-name *ns*))}))
+                (recur v true)))))
+        (catch Throwable e
+          (set! *e e)
+          (.flush out)
+          (send {"err" (str (class-name e) ": " (or (ex-message e) "") "\n")})
+          (send {"ex" (class-name e) "root-ex" (class-name (root-cause e)) "status" ["eval-error"]}))
+        (finally
+          (.flush out) (.flush err)
+          (reset! st (assoc session :ns (ns-name *ns*) :*1 *1 :*2 *2 :*3 *3 :*e *e)))))
+    @st))
+
+;;; ---- what a symbol is --------------------------------------------------------
+
+(defn- the-ns-of [msg] (or (some-> (get msg "ns") symbol find-ns) (the-ns 'user)))
+
+(defn- var-type [v]
+  (let [m (meta v)]
+    (cond (:macro m) "macro"
+          (fn? @v) "function"
+          :else "var")))
+
+(defn- candidates
+  "The symbols, aliased names and namespaces starting with prefix, as
+  nREPL completion candidates."
+  [ns prefix]
+  (let [[alias-part name-part] (when (str/includes? prefix "/")
+                                 [(subs prefix 0 (str/index-of prefix "/"))
+                                  (subs prefix (inc (str/index-of prefix "/")))])]
+    (sort-by #(get % "candidate")
+             (if alias-part
+               (when-let [target (or (get (ns-aliases ns) (symbol alias-part)) (find-ns (symbol alias-part)))]
+                 (for [[s v] (ns-publics target)
+                       :when (str/starts-with? (str s) name-part)]
+                   {"candidate" (str alias-part "/" s) "type" (var-type v) "ns" (str (ns-name target))}))
+               (concat
+                ;; clojure.core's publics too: clotran resolves an unreferred
+                ;; symbol there rather than referring them (its DEVIATIONS 3)
+                (for [[s v] (merge (ns-publics (the-ns (quote clojure.core))) (ns-map ns))
+                      :when (and (var? v) (str/starts-with? (str s) prefix))]
+                  {"candidate" (str s) "type" (var-type v) "ns" (str (ns-name (:ns (meta v))))})
+                (for [[a _] (ns-aliases ns) :when (str/starts-with? (str a) prefix)]
+                  {"candidate" (str a) "type" "namespace"})
+                (for [n (all-ns) :let [s (str (ns-name n))] :when (str/starts-with? s prefix)]
+                  {"candidate" s "type" "namespace"}))))))
+
+(defn- info-of
+  "What nREPL's info says about sym in ns, or nil."
+  [ns sym]
+  (when-let [v (try (ns-resolve ns (symbol sym)) (catch Throwable _ nil))]
+    (when (var? v)
+      (let [m (meta v)]
+        (cond-> {"ns" (str (ns-name (:ns m))) "name" (str (:name m))}
+          (:doc m) (assoc "doc" (:doc m))
+          (:arglists m) (assoc "arglists-str" (str/join "\n" (map pr-str (:arglists m))))
+          (:file m) (assoc "file" (str (:file m)))
+          (:line m) (assoc "line" (:line m))
+          (:column m) (assoc "column" (:column m))
+          (:macro m) (assoc "macro" "true"))))))
+
+;;; ---- the ops ------------------------------------------------------------------
+
+(defn- handle
+  "Answers one message, sending as it goes; status done last."
+  [send msg]
+  (let [op (get msg "op")
+        sid (get msg "session")
+        session (get @sessions sid {:ns 'user})
+        done #(send {"status" ["done"]})]
+    (case op
+      "clone" (send {"new-session" (new-session sid) "status" ["done"]})
+      "close" (do (swap! sessions dissoc sid) (send {"status" ["done" "session-closed"]}))
+      "describe" (send {"ops" (zipmap ops (repeat {}))
+                        "versions" {"nrepl" nrepl-version
+                                    "clojure" (into {} (map (fn [[k v]] [(name k) v]) (select-keys *clojure-version* [:major :minor :incremental])))
+                                    "clotran" {"version-string" "clotran"}}
+                        "aux" {"current-ns" (str (:ns session))}
+                        "status" ["done"]})
+      ("eval" "load-file")
+      (let [code (get msg (if (= op "eval") "code" "file") "")
+            ;; a request may name the namespace to evaluate in, as nREPL's may
+            session (if-let [n (get msg "ns")] (assoc session :ns (symbol n)) session)
+            st (eval-code send session code (= op "load-file"))]
+        (when sid (swap! sessions assoc sid st))
+        (done))
+      ("complete" "completions")
+      (let [prefix (or (get msg "prefix") (get msg "symbol") "")]
+        (send {"completions" (vec (candidates (the-ns-of msg) prefix)) "status" ["done"]}))
+      ("info" "lookup")
+      (if-let [i (info-of (the-ns-of msg) (or (get msg "sym") (get msg "symbol") ""))]
+        (send (merge (if (= op "lookup") {"info" i} i) {"status" ["done"]}))
+        (send {"status" ["done" "no-info"]}))
+      "eldoc"
+      (if-let [i (info-of (the-ns-of msg) (or (get msg "sym") (get msg "symbol") ""))]
+        (let [v (ns-resolve (the-ns-of msg) (symbol (or (get msg "sym") (get msg "symbol"))))]
+          (send {"eldoc" (mapv #(mapv str %) (:arglists (meta v)))
+                 "name" (get i "name") "ns" (get i "ns") "type" (if (fn? @v) "function" "variable")
+                 "docstring" (get i "doc" "") "status" ["done"]}))
+        (send {"status" ["done" "no-eldoc"]}))
+      "ns-list" (send {"ns-list" (vec (sort (map (comp str ns-name) (all-ns)))) "status" ["done"]})
+      (send {"status" ["error" "unknown-op" "done"]}))))
+
+;;; ---- the server ---------------------------------------------------------------
+
+(defonce ^:private servers (atom {}))
+
+(defn- serve [conn]
+  (let [src (b/byte-source conn)
+        lock (Object.)]
+    (try
+      (loop []
+        (when-let [msg (b/read-value src)]
+          (when (map? msg)
+            (let [base (select-keys msg ["id" "session"])
+                  send (fn [m] (locking lock (b/write-value conn (merge m base))))]
+              (try (handle send msg)
+                   (catch Throwable e
+                     (send {"err" (str (ex-message e) "\n") "status" ["error" "done"]})))))
+          (recur)))
+      (catch Throwable _ nil)
+      (finally (net/close conn)))))
+
 (defn start!
-  "Will start an nREPL server on :port (0: any free one)."
-  [{:keys [port] :as opts}]
-  (throw (ex-info "clotran-nrepl is a stub: bencode and byte-level socket reads come first" opts)))
+  "Starts an nREPL server on :port (0: any free one) at :host (default
+  127.0.0.1). Answers {:port p}, the port bound; stop! with it."
+  [{:keys [port host] :or {port 0 host "127.0.0.1"}}]
+  (let [srv (net/listen port {:host host})
+        running (atom true)]
+    (future
+      (loop []
+        (when @running
+          (when-let [c (try (net/accept srv 250) (catch Throwable _ nil))]
+            (future (serve c)))
+          (recur))))
+    (swap! servers assoc (:port srv) {:server srv :running running})
+    {:port (:port srv)}))
+
+(defn stop!
+  "Stops the server start! answered."
+  [{:keys [port]}]
+  (when-let [{:keys [server running]} (get @servers port)]
+    (reset! running false)
+    (net/close server)
+    (swap! servers dissoc port)
+    true))
