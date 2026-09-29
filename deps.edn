@@ -1,0 +1,5 @@
+;; clotran-nrepl: an nREPL server for clotran, so CIDER and other nREPL
+;; clients can connect to a running program. Provided libraries
+;; (org.clojure/clojure) are clotran itself; see clotran's PACKAGES.md.
+{:paths ["src"]
+ :deps {org.clojure/clojure {:mvn/version "1.12.6"}}}

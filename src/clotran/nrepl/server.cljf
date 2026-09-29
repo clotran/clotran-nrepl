@@ -1,0 +1,17 @@
+(ns clotran.nrepl.server
+  "An nREPL server on clotran.net: sessions, and the ops CIDER uses --
+  clone close describe eval load-file complete completions info lookup
+  eldoc ns-list. See README.md for the plan.
+
+  Stub: start! refuses, naming what is missing."
+  (:require [clotran.nrepl.bencode]))
+
+(def ops
+  "The ops this server will answer."
+  #{"clone" "close" "describe" "eval" "load-file" "complete" "completions"
+    "info" "lookup" "eldoc" "ns-list"})
+
+(defn start!
+  "Will start an nREPL server on :port (0: any free one)."
+  [{:keys [port] :as opts}]
+  (throw (ex-info "clotran-nrepl is a stub: bencode and byte-level socket reads come first" opts)))

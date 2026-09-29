@@ -1,0 +1,19 @@
+(ns clotran.nrepl.bencode
+  "bencode, nREPL's wire format: integers i42e, byte strings 5:hello,
+  lists l...e, dictionaries d...e with byte-string keys in sorted order.
+  A string's length counts BYTES (UTF-8), which is why this reads and
+  writes byte arrays, not text.
+
+  Stub: not written yet. The spec is BEP 3; nrepl/bencode is the JVM
+  implementation, used as a reference only.")
+
+(defn write-bencode
+  "Writes x -- an integer, a string, a keyword or symbol (as its name),
+  a sequential or a map -- to out."
+  [out x]
+  (throw (ex-info "clotran.nrepl.bencode/write-bencode: not yet written" {:x x})))
+
+(defn read-bencode
+  "The next value from in, or nil at the end of the stream."
+  [in]
+  (throw (ex-info "clotran.nrepl.bencode/read-bencode: not yet written" {})))
