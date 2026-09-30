@@ -37,7 +37,7 @@ emacs=${EMACS:-}
 [ -z "$emacs" ] && [ -x /Applications/Emacs.app/Contents/MacOS/Emacs ] && emacs=/Applications/Emacs.app/Contents/MacOS/Emacs
 [ -z "$emacs" ] && emacs=$(command -v emacs 2>/dev/null)
 if [ -n "$emacs" ] && "$emacs" --batch --eval "(progn (package-initialize) (require (quote cider)))" >/dev/null 2>&1; then
-  CLOTRAN_HOME="$(cd "$(dirname "$(command -v "$CLOTRAN/clotran" || echo "$CLOTRAN/clotran")")" && pwd)" NREPL_PORT=$port "$emacs" --batch -l "$here/test/cider-test.el" >"$work/cider.out" 2>&1
+  CLOTRAN_MODE_DIR="${CLOTRAN_MODE_DIR:-$here/../clotran-mode}" NREPL_PORT=$port "$emacs" --batch -l "$here/test/cider-test.el" >"$work/cider.out" 2>&1
   cst=$?
   grep '^ok\|^FAIL\|^  ' "$work/cider.out"
   [ $cst -eq 0 ] || exit 1
