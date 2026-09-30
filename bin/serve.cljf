@@ -3,7 +3,7 @@
 ;; for, then up until the process is ended.
 (require (quote clotran.nrepl.server))
 (let [p (:port (clotran.nrepl.server/start!
-                {:port (parse-long (or (System/getenv "CLOTRAN_NREPL_PORT") "0"))}))]
+                {:port (parse-long (or (clotran.host.system/getenv "CLOTRAN_NREPL_PORT") "0"))}))]
   (println (str "nREPL server started on port " p " on host localhost - nrepl://localhost:" p))
   (flush))
 @(promise)

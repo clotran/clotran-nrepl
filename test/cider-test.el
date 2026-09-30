@@ -18,7 +18,7 @@
   (if (not repl)
       (progn (princ "FAIL - CIDER: no REPL buffer after connecting\n") (kill-emacs 1))
     (with-current-buffer repl
-      (check "a generic runtime, not taken for the JVM" (cider-runtime) 'generic)
+      (check "a generic runtime, not taken for clj" (cider-runtime) 'generic)
       (check "eval" (nrepl-dict-get (cider-nrepl-sync-request:eval "(+ 1 2)") "value") "3")
       (check "printed output" (nrepl-dict-get (cider-nrepl-sync-request:eval "(println \"hi λ\")") "out") "hi λ\n")
       (check "completion" (mapcar #'substring-no-properties (seq-take (cider-complete "redu") 2)) '("reduce" "reduce-kv"))

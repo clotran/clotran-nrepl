@@ -24,7 +24,8 @@ cat > "$work/client.clj" <<CLJ
                 (= ["reduce" "reduce-kv"] (->> (nrepl/message s {:op "completions" :prefix "reduce" :ns "user"}) first :completions (map :candidate) (take 2))))]
     (println (if ok "ok   - the reference nREPL client (nrepl/nrepl 1.3.0) evaluates and completes" (str "FAIL - reference client: " (pr-str r))))
     (shutdown-agents)
-    (System/exit (if ok 0 1))))
+    ;; an uncaught exception is status 1 from clj -M
+    (when-not ok (throw (ex-info "the reference client failed" {})))))
 CLJ
 clj -Sdeps '{:deps {nrepl/nrepl {:mvn/version "1.3.0"}}}' -M "$work/client.clj" >"$work/client.out" 2>&1
 rst=$?

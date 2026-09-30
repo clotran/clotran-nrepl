@@ -93,7 +93,7 @@
         (keyword? x) (subs (str x) 1)
         :else (str x)))
 
-(defn- encode [^StringBuilder sb x]
+(defn- encode [^clotran.host.string_builder sb x]
   (cond
     (integer? x) (doto sb (.append "i") (.append (str x)) (.append "e"))
     (or (string? x) (keyword? x) (symbol? x))
@@ -114,7 +114,7 @@
 (defn encode-str
   "x as bencode text (to be sent as UTF-8)."
   [x]
-  (let [sb (StringBuilder.)] (encode sb x) (str sb)))
+  (let [sb (clotran.host.string_builder.)] (encode sb x) (str sb)))
 
 (defn write-value
   "Sends x, bencoded, on conn, in one write."

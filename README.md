@@ -9,15 +9,15 @@ against this package's own client, the reference client `nrepl/nrepl`
 1.3.0, and the real CIDER run headless in Emacs (`test/cider-test.el`) --
 all three by `test/run.sh`, the last two when clj and an Emacs with CIDER
 are there. Like babashka's server, it gives no Clojure `version-string`:
-CIDER takes one to mean JVM Clojure and evaluates JVM-only code (the
-classpath from `java.class.path`), so without it CIDER treats clotran as
+CIDER takes one to mean clj and evaluates host-bound code (the
+host's class path property), so without it CIDER treats clotran as
 a generic runtime and everything above works.
 
 ## The design
 
-Not a port of the reference `nrepl/nrepl`, which is built on JVM threads,
-class loaders and `Thread.stop`. The model is babashka's compact server
-(`babashka/babashka.nrepl`), which serves CIDER from a non-JVM Clojure
+Not a port of the reference `nrepl/nrepl`, which is built on its host's threads,
+class loaders and thread stopping. The model is babashka's compact server
+(`babashka/babashka.nrepl`), which serves CIDER from a Clojure that is not clj
 with the operations CIDER uses day to day:
 
 | op | what |

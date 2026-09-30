@@ -35,8 +35,8 @@
        ["\"nt-other\"" "\"nt-other\"" nil])
 (check "an error: err, ex and root-ex, eval-error, and the rest not run"
        (ask {"op" "eval" "code" "(/ 1 0) (println :never)" "id" "5" "session" sid})
-       [{"id" "5" "err" "ArithmeticException: Divide by zero\n"}
-        {"id" "5" "ex" "ArithmeticException" "root-ex" "ArithmeticException" "status" ["eval-error"]}
+       [{"id" "5" "err" "arithmetic_exception: Divide by zero\n"}
+        {"id" "5" "ex" "arithmetic_exception" "root-ex" "arithmetic_exception" "status" ["eval-error"]}
         {"id" "5" "status" ["done"]}])
 (check "load-file answers the last value"
        (ask {"op" "load-file" "file" "(def y 10) (* y 2)" "id" "6" "ns" "user"})
@@ -61,7 +61,7 @@
          [(boolean (some #(some-> (get % "out") (clojure.string/includes? "Unable to resolve symbol: no-such-thing")) rs))
           (last (map #(get % "status") rs))])
        [true ["done"]])
-(check "describe gives no Clojure version-string, so CIDER does not take it for the JVM"
+(check "describe gives no Clojure version-string, so CIDER does not take it for clj"
        (get-in (first (ask {"op" "describe" "id" "18"})) ["versions" "clojure" "version-string"])
        nil)
 (check "an unknown op" (first (ask {"op" "bogus" "id" "14"})) {"id" "14" "status" ["error" "unknown-op" "done"]})

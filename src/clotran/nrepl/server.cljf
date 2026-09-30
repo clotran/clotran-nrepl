@@ -3,7 +3,7 @@
   sessions, and the ops CIDER uses day to day -- clone close describe
   eval load-file complete completions info lookup eldoc ns-list. Shaped
   like babashka's compact server (babashka.nrepl), not the reference
-  nrepl/nrepl, which is built on JVM threads and class loaders.
+  nrepl/nrepl, which is built on its host's threads and class loaders.
 
   Every reply carries the request's id and session. eval answers a
   value per form, what it printed as out and err as it is printed, and
@@ -35,7 +35,7 @@
 ;; A writer sending what is printed as {key text} messages: a line at a
 ;; time, and whatever is left at a flush.
 (deftype MsgWriter [send k pending]
-  Object
+  clotran.host.value
   (write [this x]
     (let [s (if (integer? x) (str (char x)) (str x))]
       (swap! pending str s)
@@ -64,7 +64,7 @@
   (let [out (MsgWriter. send "out" (atom ""))
         err (MsgWriter. send "err" (atom ""))
         rdr (io/line-numbering-reader (io/text-reader code))
-        eof (Object.)
+        eof (clotran.host.value.)
         st (atom session)]
     (binding [*ns* (create-ns (:ns session))
               *1 (:*1 session) *2 (:*2 session) *3 (:*3 session) *e (:*e session)
@@ -81,7 +81,7 @@
                   (.flush out) (.flush err)
                   (send {"value" (pr-str v) "ns" (str (ns-name *ns*))}))
                 (recur v true)))))
-        (catch Throwable e
+        (catch clotran.host.throwable e
           (set! *e e)
           (.flush out)
           (send {"err" (str (class-name e) ": " (or (ex-message e) "") "\n")})
@@ -128,7 +128,7 @@
 (defn- info-of
   "What nREPL's info says about sym in ns, or nil."
   [ns sym]
-  (when-let [v (try (ns-resolve ns (symbol sym)) (catch Throwable _ nil))]
+  (when-let [v (try (ns-resolve ns (symbol sym)) (catch clotran.host.throwable _ nil))]
     (when (var? v)
       (let [m (meta v)]
         (cond-> {"ns" (str (ns-name (:ns m))) "name" (str (:name m))}
@@ -152,8 +152,8 @@
       "clone" (send {"new-session" (new-session sid) "status" ["done"]})
       "close" (do (swap! sessions dissoc sid) (send {"status" ["done" "session-closed"]}))
       ;; no Clojure version-string, as babashka's server gives none: CIDER
-      ;; reads one as "this is JVM Clojure" and evaluates JVM-only code --
-      ;; (.split (System/getProperty "java.class.path") ":") -- to find the
+      ;; reads one as "this is clj" and evaluates host-bound code -- it
+      ;; splits the host's class path property on ":" -- to find the
       ;; classpath, which fails here and leaves it never connected
       "describe" (send {"ops" (zipmap ops (repeat {}))
                         "versions" {"nrepl" nrepl-version
@@ -200,7 +200,7 @@
 
 (defn- serve [conn]
   (let [src (b/byte-source conn)
-        lock (Object.)]
+        lock (clotran.host.value.)]
     (try
       (loop []
         (when-let [msg (b/read-value src)]
@@ -208,17 +208,17 @@
             (let [base (select-keys msg ["id" "session"])
                   send (fn [m] (locking lock (b/write-value conn (merge m base))))]
               (try (handle send msg)
-                   (catch Throwable e
+                   (catch clotran.host.throwable e
                      (send {"err" (str (ex-message e) "\n") "status" ["error" "done"]})))))
           (recur)))
-      (catch Throwable _ nil)
+      (catch clotran.host.throwable _ nil)
       (finally (net/close conn)))))
 
 (defn start!
   "Starts an nREPL server on :port (0: any free one) at :host (default
   127.0.0.1). Answers {:port p}, the port bound; stop! with it."
   [{:keys [port host] :or {port 0 host "127.0.0.1"}}]
-  ;; what a JVM nREPL has loaded already, and CIDER assumes: without
+  ;; what a clj nREPL has loaded already, and CIDER assumes: without
   ;; cider-nrepl it shows an error by evaluating
   ;; (clojure.stacktrace/print-cause-trace *e), and an error THERE sends it
   ;; round its error handler again
@@ -228,7 +228,7 @@
     (future
       (loop []
         (when @running
-          (when-let [c (try (net/accept srv 250) (catch Throwable _ nil))]
+          (when-let [c (try (net/accept srv 250) (catch clotran.host.throwable _ nil))]
             (future (serve c)))
           (recur))))
     (swap! servers assoc (:port srv) {:server srv :running running})
