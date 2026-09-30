@@ -55,6 +55,15 @@
        {"eldoc" [["x"]] "type" "function"})
 (check "ns-list names the loaded namespaces"
        (every? (set (get (first (ask {"op" "ns-list" "id" "13"})) "ns-list")) ["clojure.core" "user" "clotran.nrepl.server"]) true)
+(check "CIDER's error display works: clojure.stacktrace is loaded"
+       (let [rs (do (ask {"op" "eval" "code" "(no-such-thing)" "id" "16" "session" sid})
+                    (ask {"op" "eval" "code" "(clojure.stacktrace/print-cause-trace *e)" "id" "17" "session" sid}))]
+         [(boolean (some #(some-> (get % "out") (clojure.string/includes? "Unable to resolve symbol: no-such-thing")) rs))
+          (last (map #(get % "status") rs))])
+       [true ["done"]])
+(check "describe says the Clojure version as CIDER reads it"
+       (get-in (first (ask {"op" "describe" "id" "18"})) ["versions" "clojure" "version-string"])
+       (clojure-version))
 (check "an unknown op" (first (ask {"op" "bogus" "id" "14"})) {"id" "14" "status" ["error" "unknown-op" "done"]})
 (check "close" (get (first (ask {"op" "close" "id" "15" "session" sid})) "status") ["done" "session-closed"])
 

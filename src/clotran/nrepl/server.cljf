@@ -153,7 +153,8 @@
       "close" (do (swap! sessions dissoc sid) (send {"status" ["done" "session-closed"]}))
       "describe" (send {"ops" (zipmap ops (repeat {}))
                         "versions" {"nrepl" nrepl-version
-                                    "clojure" (into {} (map (fn [[k v]] [(name k) v]) (select-keys *clojure-version* [:major :minor :incremental])))
+                                    "clojure" (assoc (into {} (map (fn [[k v]] [(name k) v]) (select-keys *clojure-version* [:major :minor :incremental])))
+                                               "version-string" (clojure-version))
                                     "clotran" {"version-string" "clotran"}}
                         "aux" {"current-ns" (str (:ns session))}
                         "status" ["done"]})
@@ -205,6 +206,11 @@
   "Starts an nREPL server on :port (0: any free one) at :host (default
   127.0.0.1). Answers {:port p}, the port bound; stop! with it."
   [{:keys [port host] :or {port 0 host "127.0.0.1"}}]
+  ;; what a JVM nREPL has loaded already, and CIDER assumes: without
+  ;; cider-nrepl it shows an error by evaluating
+  ;; (clojure.stacktrace/print-cause-trace *e), and an error THERE sends it
+  ;; round its error handler again
+  (require (quote clojure.stacktrace) (quote clojure.repl))
   (let [srv (net/listen port {:host host})
         running (atom true)]
     (future
