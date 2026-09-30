@@ -25,6 +25,22 @@
       (check "info" (nrepl-dict-get (cider-var-info "map") "ns") "clojure.core")
       (check "eldoc" (car (lax-plist-get (cider-eldoc-info "inc") "arglists")) '("x"))
       (check "an error" (not (null (nrepl-dict-get (cider-nrepl-sync-request:eval "(no-such-thing)") "err"))) t)
+      ;; a .cljf file: clojure-mode from clotran's editors/emacs/clotran.el,
+      ;; and loaded into clotran from its buffer as CIDER loads any file
+      (load (expand-file-name "editors/emacs/clotran.el" (getenv "CLOTRAN_HOME")))
+      ;; inside the connected project: CIDER links a buffer to a REPL by
+      ;; its project directory, and loads nothing from a file outside it
+      (let* ((dir (make-temp-file (expand-file-name "cljf" default-directory) t))
+             (f (expand-file-name "demo.cljf" dir)))
+        (with-temp-file f (insert "(ns cljf-demo)\n(defn twice [x] (* 2 x))\n"))
+        (let ((buf (find-file-noselect f)))
+          (check "a .cljf file opens in clojure-mode" (with-current-buffer buf major-mode) (quote clojure-mode))
+          (with-current-buffer buf
+            (cider-load-buffer)
+            (let ((n 0)) (while (< n 20) (accept-process-output nil 0.1) (setq n (1+ n)))))
+          (check "and CIDER loads it into clotran" (nrepl-dict-get (cider-nrepl-sync-request:eval "(cljf-demo/twice 21)") "value") "42")
+          (kill-buffer buf))
+        (delete-directory dir t)))
       (check "its trace, as CIDER shows it without middleware"
              (not (null (string-match-p "no-such-thing"
                                         (or (nrepl-dict-get (cider-nrepl-sync-request:eval "(clojure.stacktrace/print-cause-trace *e)") "out") ""))))
