@@ -1,0 +1,21 @@
+#!/bin/sh
+# clotran-nrepl [--port N]
+#
+# Starts clotran with the nREPL server in the current directory -- a
+# project's deps.edn resolved by clotran-deps, this package's source added
+# -- and prints the line CIDER's jack-in waits for:
+#
+#   nREPL server started on port 7888 on host localhost - nrepl://localhost:7888
+#
+# so CIDER can run it as its jack-in command (clotran-mode sets that up in
+# .cljf buffers). Stays up until killed. Port 0, the default, is any free one.
+here=$(cd "$(dirname "$0")/.." && pwd)
+port=0
+[ "$1" = "--port" ] && port="$2"
+clotran=${CLOTRAN_PROGRAM:-clotran}
+path=""
+if [ -f deps.edn ]; then
+  deps=${CLOTRAN_DEPS_PROGRAM:-clotran-deps}
+  path=$("$deps") || exit 1
+fi
+CLOTRAN_NREPL_PORT=$port CLOTRAN_PATH="${path:+$path:}$here/src" exec "$clotran" "$here/bin/serve.cljf" </dev/null

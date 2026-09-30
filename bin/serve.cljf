@@ -1,0 +1,9 @@
+;; bin/serve.cljf -- what bin/clotran-nrepl runs: the server on
+;; CLOTRAN_NREPL_PORT (0: any free one), the line CIDER's jack-in waits
+;; for, then up until the process is ended.
+(require (quote clotran.nrepl.server))
+(let [p (:port (clotran.nrepl.server/start!
+                {:port (parse-long (or (System/getenv "CLOTRAN_NREPL_PORT") "0"))}))]
+  (println (str "nREPL server started on port " p " on host localhost - nrepl://localhost:" p))
+  (flush))
+@(promise)
