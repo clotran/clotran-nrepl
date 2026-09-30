@@ -38,7 +38,14 @@
           (with-current-buffer buf
             (cider-load-buffer)
             (let ((n 0)) (while (< n 20) (accept-process-output nil 0.1) (setq n (1+ n)))))
-          (check "and CIDER loads it into clotran" (nrepl-dict-get (cider-nrepl-sync-request:eval "(cljf-demo/twice 21)") "value") "42")
+          (check "and CIDER loads it into clotran, interpreted" (nrepl-dict-get (cider-nrepl-sync-request:eval "(cljf-demo/twice 21)") "value") "42")
+          ;; loaded as the file, so compiled too: build it now rather than
+          ;; wait for the background build, then run the native code
+          (check "and compiles it"
+                 (nrepl-dict-get (cider-nrepl-sync-request:eval (format "(clotran.loader/compile-now %S)" f)) "value") ":installed")
+          (check "the compiled function is the one that runs"
+                 (nrepl-dict-get (cider-nrepl-sync-request:eval "[(clojure.string/includes? (pr-str cljf-demo/twice) \"#<compiled\") (cljf-demo/twice 21)]") "value")
+                 "[true 42]")
           (kill-buffer buf))
         (delete-directory dir t)))
       (check "its trace, as CIDER shows it without middleware"

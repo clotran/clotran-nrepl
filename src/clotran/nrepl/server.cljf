@@ -163,6 +163,15 @@
                         "status" ["done"]})
       ("eval" "load-file")
       (let [code (get msg (if (= op "eval") "code" "file") "")
+            path (get msg "file-path")
+            ;; a load-file of a file saved as sent is loaded AS that file, as
+            ;; `clotran file.cljf` loads it -- interpreted now, and compiled to
+            ;; native code in the background, installed when built
+            ;; (clotran.loader); text not on disk (an unsaved buffer) is
+            ;; evaluated as text
+            code (if (and (= op "load-file") path (clotran-file-exists? path) (= code (slurp path)))
+                   (str "(clojure.core/load-file " (pr-str path) ")")
+                   code)
             ;; a request may name the namespace to evaluate in, as nREPL's may
             session (if-let [n (get msg "ns")] (assoc session :ns (symbol n)) session)
             st (eval-code send session code (= op "load-file"))]
