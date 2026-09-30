@@ -5,8 +5,13 @@ so CIDER, Calva and other nREPL clients can connect to a running clotran
 program, including one embedded in a Fortran solver.
 
 **Status (2026-09-29): serving.** All eleven ops below answer, tested
-against this package's own client and the reference client, `nrepl/nrepl`
-1.3.0 (`test/run.sh`). CIDER itself has not been tried yet.
+against this package's own client, the reference client `nrepl/nrepl`
+1.3.0, and the real CIDER run headless in Emacs (`test/cider-test.el`) --
+all three by `test/run.sh`, the last two when clj and an Emacs with CIDER
+are there. Like babashka's server, it gives no Clojure `version-string`:
+CIDER takes one to mean JVM Clojure and evaluates JVM-only code (the
+classpath from `java.class.path`), so without it CIDER treats clotran as
+a generic runtime and everything above works.
 
 ## The design
 

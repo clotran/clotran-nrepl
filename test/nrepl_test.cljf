@@ -61,9 +61,9 @@
          [(boolean (some #(some-> (get % "out") (clojure.string/includes? "Unable to resolve symbol: no-such-thing")) rs))
           (last (map #(get % "status") rs))])
        [true ["done"]])
-(check "describe says the Clojure version as CIDER reads it"
+(check "describe gives no Clojure version-string, so CIDER does not take it for the JVM"
        (get-in (first (ask {"op" "describe" "id" "18"})) ["versions" "clojure" "version-string"])
-       (clojure-version))
+       nil)
 (check "an unknown op" (first (ask {"op" "bogus" "id" "14"})) {"id" "14" "status" ["error" "unknown-op" "done"]})
 (check "close" (get (first (ask {"op" "close" "id" "15" "session" sid})) "status") ["done" "session-closed"])
 

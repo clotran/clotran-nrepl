@@ -26,4 +26,21 @@ cat > "$work/client.clj" <<CLJ
     (shutdown-agents)
     (System/exit (if ok 0 1))))
 CLJ
-clj -Sdeps '{:deps {nrepl/nrepl {:mvn/version "1.3.0"}}}' -M "$work/client.clj" 2>&1 | grep -v '^Downloading'
+clj -Sdeps '{:deps {nrepl/nrepl {:mvn/version "1.3.0"}}}' -M "$work/client.clj" >"$work/client.out" 2>&1
+rst=$?
+grep -v '^Downloading' "$work/client.out"
+[ $rst -eq 0 ] || exit 1
+
+# the real CIDER, headless, when there is an Emacs that has it: EMACS, else
+# the macOS application, else an emacs on PATH (not an emacsclient alias)
+emacs=${EMACS:-}
+[ -z "$emacs" ] && [ -x /Applications/Emacs.app/Contents/MacOS/Emacs ] && emacs=/Applications/Emacs.app/Contents/MacOS/Emacs
+[ -z "$emacs" ] && emacs=$(command -v emacs 2>/dev/null)
+if [ -n "$emacs" ] && "$emacs" --batch --eval "(progn (package-initialize) (require (quote cider)))" >/dev/null 2>&1; then
+  NREPL_PORT=$port "$emacs" --batch -l "$here/test/cider-test.el" >"$work/cider.out" 2>&1
+  cst=$?
+  grep '^ok\|^FAIL\|^  ' "$work/cider.out"
+  [ $cst -eq 0 ] || exit 1
+else
+  echo "(no Emacs with CIDER found: the CIDER check is skipped)"
+fi

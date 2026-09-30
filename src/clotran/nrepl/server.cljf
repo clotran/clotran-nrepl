@@ -151,10 +151,13 @@
     (case op
       "clone" (send {"new-session" (new-session sid) "status" ["done"]})
       "close" (do (swap! sessions dissoc sid) (send {"status" ["done" "session-closed"]}))
+      ;; no Clojure version-string, as babashka's server gives none: CIDER
+      ;; reads one as "this is JVM Clojure" and evaluates JVM-only code --
+      ;; (.split (System/getProperty "java.class.path") ":") -- to find the
+      ;; classpath, which fails here and leaves it never connected
       "describe" (send {"ops" (zipmap ops (repeat {}))
                         "versions" {"nrepl" nrepl-version
-                                    "clojure" (assoc (into {} (map (fn [[k v]] [(name k) v]) (select-keys *clojure-version* [:major :minor :incremental])))
-                                               "version-string" (clojure-version))
+                                    "clojure" (into {} (map (fn [[k v]] [(name k) v]) (select-keys *clojure-version* [:major :minor :incremental])))
                                     "clotran" {"version-string" "clotran"}}
                         "aux" {"current-ns" (str (:ns session))}
                         "status" ["done"]})
