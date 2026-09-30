@@ -12,10 +12,20 @@
 here=$(cd "$(dirname "$0")/.." && pwd)
 port=0
 [ "$1" = "--port" ] && port="$2"
-clotran=${CLOTRAN_PROGRAM:-clotran}
+# A tool is found on PATH, else beside this checkout, else in ~/.local/bin
+# (make install's default): an Emacs started from the macOS Dock runs this
+# with a PATH that has none of the user's own directories on it.
+find_tool() { # name, the path beside this checkout
+  command -v "$1" 2>/dev/null && return 0
+  [ -x "$2" ] && { echo "$2"; return 0; }
+  [ -x "$HOME/.local/bin/$1" ] && { echo "$HOME/.local/bin/$1"; return 0; }
+  echo "clotran-nrepl: no $1 found (put it on PATH, or make install it)" >&2
+  return 1
+}
+clotran=${CLOTRAN_PROGRAM:-$(find_tool clotran "$here/../clotran/clotran")} || exit 1
 path=""
 if [ -f deps.edn ]; then
-  deps=${CLOTRAN_DEPS_PROGRAM:-clotran-deps}
+  deps=${CLOTRAN_DEPS_PROGRAM:-$(find_tool clotran-deps "$here/../clotran-deps/bin/clotran-deps")} || exit 1
   path=$("$deps") || exit 1
 fi
 CLOTRAN_NREPL_PORT=$port CLOTRAN_PATH="${path:+$path:}$here/src" exec "$clotran" "$here/bin/serve.cljf" </dev/null
