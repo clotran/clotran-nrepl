@@ -55,7 +55,7 @@ then, in that directory, `clotran` and
 
 and from Emacs, `M-x cider-connect-clj` to localhost, port 7888.
 
-From Emacs, clotran-mode (`~/jborden/clotran-mode`) makes `M-x cider-jack-in`
+From Emacs, clotran-mode (`~/clotran/clotran-mode`) makes `M-x cider-jack-in`
 run `bin/clotran-nrepl`, which does the above for the project in the
 current directory and prints the line CIDER waits for. By hand:
 
