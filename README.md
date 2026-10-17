@@ -46,7 +46,7 @@ The pieces, all clotran's own:
 
 In a project's `deps.edn`:
 
-    {:deps {jborden/clotran-nrepl {:local/root "../clotran-nrepl"}}}
+    {:deps {clotran/clotran-nrepl {:local/root "../clotran-nrepl"}}}
 
 then, in that directory, `clotran` and
 
