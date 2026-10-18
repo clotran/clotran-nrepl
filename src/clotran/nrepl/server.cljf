@@ -158,7 +158,7 @@
       "describe" (send {"ops" (zipmap ops (repeat {}))
                         "versions" {"nrepl" nrepl-version
                                     "clojure" (into {} (map (fn [[k v]] [(name k) v]) (select-keys *clojure-version* [:major :minor :incremental])))
-                                    "clotran" {"version-string" "clotran"}}
+                                    "clotran" {"version-string" (or (clotran.host.system/getProperty "clotran.version") "clotran")}}
                         "aux" {"current-ns" (str (:ns session))}
                         "status" ["done"]})
       ("eval" "load-file")

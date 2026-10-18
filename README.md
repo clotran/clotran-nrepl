@@ -55,11 +55,15 @@ then, in that directory, `clotran` and
 
 and from Emacs, `M-x cider-connect-clj` to localhost, port 7888.
 
-From Emacs, clotran-mode (`~/clotran/clotran-mode`) makes `M-x cider-jack-in`
-run `bin/clotran-nrepl`, which does the above for the project in the
-current directory and prints the line CIDER waits for. By hand:
-
-    bin/clotran-nrepl --port 7888
+From an editor, `clotran nrepl [--port N]` (the clotran command; its
+PLAN step 36) starts this server in a clotran for the project in the
+current directory, writes `.nrepl-port` and prints the line CIDER's
+jack-in waits for; on a terminal the REPL follows in the same process,
+so the editor and the prompt share one program. clotran finds this
+library beside its checkout, or by the `tools.edn` an installed clotran
+carries, pinned to a commit, so no project's `deps.edn` has to name it
+and no editor has to know where it is. clotran-mode
+(`~/clotran/clotran-mode`) makes `M-x cider-jack-in` run it.
 
 ## Tests
 
