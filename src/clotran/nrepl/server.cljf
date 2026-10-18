@@ -169,9 +169,14 @@
             ;; native code in the background, installed when built
             ;; (clotran.loader); text not on disk (an unsaved buffer) is
             ;; evaluated as text
-            code (if (and (= op "load-file") path (clotran-file-exists? path) (= code (slurp path)))
+            code (cond
+                   ;; a Fortran file of a package: the package built again from its
+                   ;; sources and its routines replaced (clotran.package, PLAN 36)
+                   (and (= op "load-file") path (re-find #"(?i)\.(f90|f95|f03|f08|f18|f|for)$" path))
+                   (str "(do (clojure.core/require (quote clotran.package)) (clotran.package/load-file-package " (pr-str path) "))")
+                   (and (= op "load-file") path (clotran-file-exists? path) (= code (slurp path)))
                    (str "(clojure.core/load-file " (pr-str path) ")")
-                   code)
+                   :else code)
             ;; a request may name the namespace to evaluate in, as nREPL's may
             session (if-let [n (get msg "ns")] (assoc session :ns (symbol n)) session)
             st (eval-code send session code (= op "load-file"))]

@@ -67,6 +67,24 @@
 (check "an unknown op" (first (ask {"op" "bogus" "id" "14"})) {"id" "14" "status" ["error" "unknown-op" "done"]})
 (check "close" (get (first (ask {"op" "close" "id" "15" "session" sid})) "status") ["done" "session-closed"])
 
+(if-not (do (require (quote clotran.bind)) ((resolve (quote clotran.bind/fortran-compiler))))
+  (println "skipped: no Fortran compiler, load-file of a package not checked")
+  (let [dir (clotran-temp-dir (or (clotran.host.system/getenv "TMPDIR") "/tmp"))
+        src (str dir "/tpkg.f90")
+        write! (fn [k] (spit src (str "module tpkg\n  implicit none\ncontains\n  real(8) function twice(x)\n    real(8), intent(in) :: x\n    twice = " k " * x\n  end function twice\nend module tpkg\n")))
+        load! (fn [id] (ask {"op" "load-file" "file" (slurp src) "file-path" src "file-name" "tpkg.f90" "id" id "session" sid}))]
+    (spit (str dir "/package.edn") "{:name \"tpkg\" :sources [\"tpkg.f90\"]}")
+    (write! 2)
+    (check "load-file of a Fortran file builds its package and interns its routines"
+           [(some #(get % "value") (load! "20"))
+            (some #(get % "value") (ask {"op" "eval" "code" "(tpkg.raw/twice 21.0)" "id" "21" "session" sid}))]
+           ["\"tpkg.raw\"" "42.0"])
+    (write! 3)
+    (check "load-file again after the source changed: rebuilt, the routine replaced, and said so"
+           [(some #(get % "out") (load! "22"))
+            (some #(get % "value") (ask {"op" "eval" "code" "(tpkg.raw/twice 21.0)" "id" "23" "session" sid}))]
+           ["clotran: tpkg.raw rebuilt from its sources: 1 routines replaced, module state fresh\n" "63.0"])))
+
 (net/close c)
 (srv/stop! s)
 (if (zero? @failures)

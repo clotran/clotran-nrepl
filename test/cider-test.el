@@ -34,7 +34,7 @@
              (f (expand-file-name "demo.cljf" dir)))
         (with-temp-file f (insert "(ns cljf-demo)\n(defn twice [x] (* 2 x))\n"))
         (let ((buf (find-file-noselect f)))
-          (check "a .cljf file opens in clojure-mode" (with-current-buffer buf major-mode) (quote clojure-mode))
+          (check "a .cljf file opens in a clojure-mode (clotran-mode)" (with-current-buffer buf (and (derived-mode-p (quote clojure-mode)) t)) t)
           (with-current-buffer buf
             (cider-load-buffer)
             (let ((n 0)) (while (< n 20) (accept-process-output nil 0.1) (setq n (1+ n)))))
