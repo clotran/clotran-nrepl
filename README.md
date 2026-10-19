@@ -1,6 +1,6 @@
 # clotran-nrepl
 
-An nREPL server for [clotran](../clotran) -- Clojure hosted on Fortran --
+An nREPL server for [clotran](https://github.com/clotran/clotran) -- Clojure hosted on Fortran --
 so CIDER, Calva and other nREPL clients can connect to a running clotran
 program, including one embedded in a Fortran solver.
 
@@ -44,26 +44,28 @@ The pieces, all clotran's own:
 
 ## Using it
 
-In a project's `deps.edn`:
+`clotran nrepl [--port N]` (the clotran command; its PLAN step 36)
+starts this server in a clotran for the project in the current
+directory, writes `.nrepl-port` and prints the line CIDER's jack-in
+waits for; on a terminal the REPL follows in the same process, so the
+editor and the prompt share one program. There is nothing to add to a
+project: an installed clotran carries this library (its `tools.edn`
+pins the commit), and a checkout beside clotran, or `CLOTRAN_NREPL=dir`,
+is used instead when there is one. From Emacs, `M-x cider-connect-clj` to localhost and
+the port it printed; [clotran-mode](https://github.com/clotran/clotran-mode)
+starts it and connects with `C-c C-z`, and makes CIDER's own
+`M-x cider-jack-in` in a clotran buffer run it too.
 
-    {:deps {clotran/clotran-nrepl {:local/root "../clotran-nrepl"}}}
+In a program of your own -- one embedded in a solver -- name it in the
+`deps.edn`:
 
-then, in that directory, `clotran` and
+    {:deps {clotran/clotran-nrepl {:git/url "https://github.com/clotran/clotran-nrepl.git"
+                                   :git/sha "211616104c225498b794edbf3f6002dcc52c873f"}}}
+
+run `clotran deps` once, then `clotran` in that directory and
 
     (require (quote clotran.nrepl.server))
     (clotran.nrepl.server/start! {:port 7888})
-
-and from Emacs, `M-x cider-connect-clj` to localhost, port 7888.
-
-From an editor, `clotran nrepl [--port N]` (the clotran command; its
-PLAN step 36) starts this server in a clotran for the project in the
-current directory, writes `.nrepl-port` and prints the line CIDER's
-jack-in waits for; on a terminal the REPL follows in the same process,
-so the editor and the prompt share one program. clotran finds this
-library beside its checkout, or by the `tools.edn` an installed clotran
-carries, pinned to a commit, so no project's `deps.edn` has to name it
-and no editor has to know where it is. clotran-mode
-(`~/clotran/clotran-mode`) makes `M-x cider-jack-in` run it.
 
 ## Tests
 
