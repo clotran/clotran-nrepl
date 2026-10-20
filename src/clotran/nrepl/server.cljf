@@ -13,7 +13,8 @@
   (:require [clotran.nrepl.bencode :as b]
             [clotran.net :as net]
             [clotran.io :as io]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [clotran.complete :as complete]))
 
 (def ops
   "The ops this server answers."
@@ -95,35 +96,12 @@
 
 (defn- the-ns-of [msg] (or (some-> (get msg "ns") symbol find-ns) (the-ns 'user)))
 
-(defn- var-type [v]
-  (let [m (meta v)]
-    (cond (:macro m) "macro"
-          (fn? @v) "function"
-          :else "var")))
-
 (defn- candidates
   "The symbols, aliased names and namespaces starting with prefix, as
-  nREPL completion candidates."
+  nREPL completion candidates: clotran.complete's, the REPL's line editor's too."
   [ns prefix]
-  (let [[alias-part name-part] (when (str/includes? prefix "/")
-                                 [(subs prefix 0 (str/index-of prefix "/"))
-                                  (subs prefix (inc (str/index-of prefix "/")))])]
-    (sort-by #(get % "candidate")
-             (if alias-part
-               (when-let [target (or (get (ns-aliases ns) (symbol alias-part)) (find-ns (symbol alias-part)))]
-                 (for [[s v] (ns-publics target)
-                       :when (str/starts-with? (str s) name-part)]
-                   {"candidate" (str alias-part "/" s) "type" (var-type v) "ns" (str (ns-name target))}))
-               (concat
-                ;; clojure.core's publics too: clotran resolves an unreferred
-                ;; symbol there rather than referring them (its DEVIATIONS 3)
-                (for [[s v] (merge (ns-publics (the-ns (quote clojure.core))) (ns-map ns))
-                      :when (and (var? v) (str/starts-with? (str s) prefix))]
-                  {"candidate" (str s) "type" (var-type v) "ns" (str (ns-name (:ns (meta v))))})
-                (for [[a _] (ns-aliases ns) :when (str/starts-with? (str a) prefix)]
-                  {"candidate" (str a) "type" "namespace"})
-                (for [n (all-ns) :let [s (str (ns-name n))] :when (str/starts-with? s prefix)]
-                  {"candidate" s "type" "namespace"}))))))
+  (for [{:keys [candidate type ns]} (complete/candidates ns prefix)]
+    (cond-> {"candidate" candidate "type" type} ns (assoc "ns" ns))))
 
 (defn- info-of
   "What nREPL's info says about sym in ns, or nil."
